@@ -1,3 +1,4 @@
+from pymongo import MongoClient
 
-# This directory will contain connection scripts for MongoDB
-# e.g., using pymongo or NodeJS driver
+client_mongo = MongoClient("mongodb://localhost:27017/")
+db = client_mongo["pisid"]
