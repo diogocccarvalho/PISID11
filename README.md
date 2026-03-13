@@ -14,7 +14,7 @@
 
         pisid_mazeact: Escuta comandos de atuadores (score, abrir/fechar portas) .
 
-2. Motor de Ingestão e Lógica (Backend 1 - Python/Java)
+2. Motor de Ingestão e Lógica (Backend 1 - Python/Java) script python por interação entre componentes 
 
     Responsabilidade: * Ouvir os sensores MQTT e persistir os dados brutos instantaneamente na BD Não-Relacional .
 
@@ -30,15 +30,11 @@
 
 3. Base de Dados de Ingestão (MongoDB)
 
-O buffer de alta velocidade para os dados empíricos.
-
     Responsabilidade: Armazenar de forma rápida e flexível (modelo não relacional) todas as leituras de sensores geradas a cada segundo.
 
     Interface: Recebe escritas do Motor de Ingestão e serve de fonte de leitura para o Migrador de Dados.
 
 4. Pipeline de Migração (Backend 2 - Python/Java/PHP)
-
-O "canalizador" do sistema, focado na tolerância a falhas.
 
     Responsabilidade:
     
