@@ -68,6 +68,7 @@ CREATE TABLE OcupacaoLabirinto (
     NumeroOdd INT NOT NULL,
     NumeroEven INT NOT NULL,
     simulacao INT NOT NULL,
+    num_gatulhos INT NOT NULL,
     PRIMARY KEY (idOcupacao),
     FOREIGN KEY (sala) REFERENCES Sala(idSala),
     FOREIGN KEY (simulacao) REFERENCES Simulacao(idSimulacao)
