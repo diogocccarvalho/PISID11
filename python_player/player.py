@@ -31,11 +31,10 @@ def on_message(client, userdata, msg):
         print(f"Temperature Sensor: {data['Temperature']} °C")
     elif msg.topic == "pisid_mazemov_13":
         db["Motion"].insert_one(data)
-        print(f"Motion Sensor: {data['Marsami']} Marsamis, {data['RoomOrigin']} Quarto de Origem, {data['RoomDestiny']} Quarto de Destino, {data['Status']} Estado")
+        print(f"Motion Sensor: {data['Marsami']} Marsamis, {data['RoomOrigin']} Quarto de Origem, {data['RoomDestiny']} Quarto de Destino e Estado: {data['Status']}")
 
 client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
 client.connect("broker.emqx.io", 1883, 60)
 client.loop_forever()
-
