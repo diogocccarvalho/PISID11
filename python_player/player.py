@@ -23,6 +23,7 @@ def on_connect(client, userdata, flags, rc):
 
 def on_message(client, userdata, msg):
     data = json.loads(msg.payload)
+    data["migrated"] = False  # Add migrated flag for MongoDB
     if msg.topic == "pisid_mazesound_13":
         db["Sound"].insert_one(data)
         print(f"Sound Sensor: {data['Sound']} dB")
