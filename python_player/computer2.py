@@ -16,6 +16,7 @@ def on_connect(client, userdata, flags, rc):
 
 def on_message(client, userdata, msg):
     payload = json.loads(msg.payload)
+    print(payload)
     collection_name = payload["collection"]
     d = payload["data"]
 
