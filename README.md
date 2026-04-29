@@ -79,3 +79,9 @@ A interface gráfica em tempo real para monitorização passiva.
     Regra de Ouro: Componente estritamente de leitura. Não contém lógica de pontuação nem atua no labirinto.
 
     Interface (API / Leitura de BD): Conecta-se diretamente ao MySQL ou a uma API intermediária para consumir as tabelas: OcupaçaoLabirinto, Mensagens, Temperatura e Som .
+
+# Como correr
+
+1. python .\python_player\computer2.py
+2. python .\python_player\computer1.py
+3. .\simulator\windows\mazerun.exe 13

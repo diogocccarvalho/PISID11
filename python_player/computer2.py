@@ -1,42 +1,35 @@
 import sys
 import os
 import json
+import time
+import threading
 import paho.mqtt.client as mqtt
 import mysql.connector
 
-# Append path to import database modules
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 import database.mysql_connect as mysql_db
 
-# MQTT -> MySQL
-def on_connect(client, userdata, flags, rc):
-    print(f"[Computer B] Connected to MQTT Tunnel with code {rc}")
-    client.subscribe("pisid_maze_data")
-
-def on_message(client, userdata, msg):
-    payload = json.loads(msg.payload)
-    print(payload)
+def process_message(payload):
     collection_name = payload["collection"]
     d = payload["data"]
+
+    print(payload)
 
     try:
         conn = mysql.connector.connect(**mysql_db.db_config)
         cursor = conn.cursor()
 
-        # Get active simulation ID
         cursor.execute("SELECT idSimulacao FROM Simulacao WHERE estado = 'ativo' LIMIT 1")
         resultado = cursor.fetchone()
         if resultado is None:
-            print("[Computer B] No active simulation found. Data not inserted.")
+            print(f"[Computer B] No active simulation found. {collection_name} data not inserted.")
             return
         idSimulacao = resultado[0]
 
-        # Get current hour
         cursor.execute("SELECT HOUR(NOW())")
         hora_atual = cursor.fetchone()[0]
 
-        # Insert based on collection type
         if collection_name == "Sound":
             data = (d['Sound'], d['Hour'], idSimulacao)
             cursor.execute("INSERT INTO Som (som, hora, idSimulacao) VALUES (%s, %s, %s)", data)
@@ -58,16 +51,37 @@ def on_message(client, userdata, msg):
         if 'conn' in locals() and conn.is_connected():
             conn.close()
 
-# MAIN do pc 2
-if __name__ == "__main__":
-    print("[Computer B] Starting MySQL ingestion node...")
-    client = mqtt.Client(client_id="Thread3_Subscriber_B")
+# Mqtt -> Sql
+def mqtt_subscriber_thread(topic, client_id):
+    def on_connect(client, userdata, flags, rc):
+        print(f"[Computer B] {client_id} connected to MQTT Tunnel (Code {rc}) -> Subscribing to: {topic}")
+        client.subscribe(topic)
+
+    def on_message(client, userdata, msg):
+        payload = json.loads(msg.payload)
+        process_message(payload)
+
+    client = mqtt.Client(client_id=client_id)
     client.on_connect = on_connect
     client.on_message = on_message
     
     client.connect("broker.emqx.io", 1883, 60)
+    client.loop_forever()
+
+# MAIN do pc 2
+if __name__ == "__main__":
+    print("[Computador 2] A começar...")
+    
+    t_sound = threading.Thread(target=mqtt_subscriber_thread, args=("pisid_maze_data_sound", "Sub_Sound_B"), daemon=True)
+    t_temp = threading.Thread(target=mqtt_subscriber_thread, args=("pisid_maze_data_temp", "Sub_Temp_B"), daemon=True)
+    t_motion = threading.Thread(target=mqtt_subscriber_thread, args=("pisid_maze_data_motion", "Sub_Motion_B"), daemon=True)
+
+    t_sound.start()
+    t_temp.start()
+    t_motion.start()
     
     try:
-        client.loop_forever()
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
-        print("Shutting down Computer B node...")
+        print("Shutting down computer 2...")
