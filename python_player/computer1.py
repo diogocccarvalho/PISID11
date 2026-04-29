@@ -6,7 +6,6 @@ import threading
 import paho.mqtt.client as mqtt
 import mysql.connector
 
-# Append path to import database modules
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 import database.mongo_connect as mongo
@@ -33,8 +32,8 @@ def connect_cloud():
     cursor.close()
     conn.close()
 
-# THREAD 1: Server -> MongoDB
-def thread1_mqtt_to_mongo():
+# Servidor -> MongoDB
+def server_to_mongo():
     def on_connect(client, userdata, flags, rc):
         print(f"[Thread 1] Connected to Sensor Broker with code {rc}")
         client.subscribe("pisid_mazesound_13")
@@ -43,7 +42,7 @@ def thread1_mqtt_to_mongo():
 
     def on_message(client, userdata, msg):
         data = json.loads(msg.payload)
-        data["migrated"] = False  # adicionamos a variável que marca se já foi enviado um certo payload
+        data["migrated"] = False
         
         if msg.topic == "pisid_mazesound_13":
             mongo.db["Sound"].insert_one(data)
@@ -56,7 +55,7 @@ def thread1_mqtt_to_mongo():
         
         elif msg.topic == "pisid_mazetemp_13":
             mongo.db["Temperature"].insert_one(data)
-            print(f"[Thread 1] Temperature Sensor: {data['Temperature']} °C")
+            print(f"[Thread 2] Temperature Sensor: {data['Temperature']} °C")
             if data["Temperature"] > maxtemperature or data["Temperature"] < mintemperature:
                 client.publish("pisid_mazeact", '{"Type": "AcOn", "Player": 13}')
                 print("Temperature out of bounds! Turning AC on.")
@@ -65,7 +64,7 @@ def thread1_mqtt_to_mongo():
                 
         elif msg.topic == "pisid_mazemov_13":
             mongo.db["Motion"].insert_one(data)
-            print(f"[Thread 1] Motion Sensor: {data['Marsami']} Marsamis")
+            print(f"[Thread 3] Motion Sensor: {data['Marsami']} Marsamis")
 
     client = mqtt.Client(client_id="Thread1_Sensors_A")
     client.on_connect = on_connect
@@ -73,47 +72,50 @@ def thread1_mqtt_to_mongo():
     client.connect("broker.emqx.io", 1883, 60)
     client.loop_forever()
 
-# THREAD 2: MongoDB -> MQTT
-def thread2_mongo_to_mqtt():
-    client = mqtt.Client(client_id="Thread2_Publisher_A")
+# MongoDB -> MQTT
+def mongo_to_mqtt(collection_name, topic, client_id):
+    client = mqtt.Client(client_id=client_id)
     client.connect("broker.emqx.io", 1883, 60)
     client.loop_start()
 
-    collections = ["Sound", "Temperature", "Motion"]
-    
-    print("[Thread 2] Started polling MongoDB for unmigrated data...")
+    print(f"[Thread {collection_name}] Started polling MongoDB for unmigrated data...")
     while True:
-        for coll in collections:
-            documentos = mongo.db[coll].find({"migrated": False})
-            for d in documentos:
-                mongo.db[coll].update_one({"_id": d["_id"]}, {"$set": {"migrated": True}})
-                
-                if "_id" in d:
-                    del d["_id"]
-                
-                payload = {
-                    "collection": coll,
-                    "data": d
-                }
-                
-                client.publish("pisid_maze_data", json.dumps(payload))
-                print(f"[Thread 2] Relayed {coll} data through MQTT tunnel.")
+        documentos = mongo.db[collection_name].find({"migrated": False})
+        for d in documentos:
+            mongo.db[collection_name].update_one({"_id": d["_id"]}, {"$set": {"migrated": True}})
+            d["migrated"] = True
+            
+            if "_id" in d:
+                del d["_id"]
+            
+            payload = {
+                "collection": collection_name,
+                "data": d
+            }
+            
+            client.publish(topic, json.dumps(payload))
+            print(f"[Thread {collection_name}] Relayed data through MQTT tunnel on topic: {topic}.")
                 
         time.sleep(1)
 
 # MAIN do pc 1
 if __name__ == "__main__":
     connect_cloud()
-    print("[Computer A] Cloud configurations loaded.")
+    print("[Computador 1] A começar...")
 
-    t1 = threading.Thread(target=thread1_mqtt_to_mongo, daemon=True)
-    t2 = threading.Thread(target=thread2_mongo_to_mqtt, daemon=True)
+    t1 = threading.Thread(target=server_to_mongo, daemon=True)
+    
+    t2_sound = threading.Thread(target=mongo_to_mqtt, args=("Sound", "pisid_maze_data_sound", "Pub_Sound_A"), daemon=True)
+    t3_temp = threading.Thread(target=mongo_to_mqtt, args=("Temperature", "pisid_maze_data_temp", "Pub_Temp_A"), daemon=True)
+    t4_motion = threading.Thread(target=mongo_to_mqtt, args=("Motion", "pisid_maze_data_motion", "Pub_Motion_A"), daemon=True)
 
     t1.start()
-    t2.start()
+    t2_sound.start()
+    t3_temp.start()
+    t4_motion.start()
 
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("Shutting down Computer A node...")
+        print("Shutting down computer 1...")
