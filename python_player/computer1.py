@@ -16,19 +16,28 @@ mintemperature = 0
 maxnoise = 0
 normaltemperature = 0
 normalnoise = 0
+warn_high_temp = 0
+warn_low_temp = 0
+warn_noise = 0
 
 def connect_cloud():
-    """Fetches threshold settings from the cloud database."""
     conn = mysql.connector.connect(**cloud.db_config)
     cursor = conn.cursor()
     cursor.execute("SELECT normaltemperature, temperaturevarhightoleration, temperaturevarlowtoleration, normalnoise, noisevartoleration FROM setupmaze LIMIT 1")
     result = cursor.fetchone()
-    global maxtemperature, mintemperature, maxnoise, normaltemperature, normalnoise
-    normaltemperature = result[0]
-    maxtemperature = result[0] + result[1]
-    mintemperature = result[0] - result[2]
-    maxnoise = result[3] + result[4]
-    normalnoise = result[3]
+    global maxtemperature, mintemperature, maxnoise, normaltemperature, normalnoise, warn_high_temp, warn_low_temp, warn_noise
+    normaltemperature = float(result[0])
+    high_tol          = float(result[1])
+    low_tol           = float(result[2])    
+    normalnoise       = float(result[3])
+    noise_tol         = float(result[4])
+    maxtemperature    = normaltemperature + high_tol
+    mintemperature    = normaltemperature - low_tol
+    maxnoise          = normalnoise + noise_tol
+
+    warn_high_temp    = maxtemperature - (high_tol  * 0.2)
+    warn_low_temp     = mintemperature + (low_tol   * 0.2)
+    warn_noise        = maxnoise       - (noise_tol * 0.2)
     cursor.close()
     conn.close()
 
@@ -47,21 +56,21 @@ def server_to_mongo():
         if msg.topic == "pisid_mazesound_13":
             mongo.db["Sound"].insert_one(data)
             print(f"[Thread 1] Sound Sensor: {data['Sound']} dB")
-            if data["Sound"] > maxnoise:
-                client.publish("pisid_mazeact", '{"Type": "CloseAllDoor", "Player": 13}')
+            if data["Sound"] > warn_noise:
+                client.publish("pisid_mazeact", "{Type: CloseAllDoor, Player: 13}")
                 print("Noise level too high! Closing all doors.")
             elif data["Sound"] <= normalnoise:
-                client.publish("pisid_mazeact", '{"Type": "OpenAllDoor", "Player": 13}')
-        
+                client.publish("pisid_mazeact", "{Type: OpenAllDoor, Player: 13}")
+                print("Noise level is normal! Opening all doors.")
         elif msg.topic == "pisid_mazetemp_13":
             mongo.db["Temperature"].insert_one(data)
             print(f"[Thread 2] Temperature Sensor: {data['Temperature']} °C")
-            if data["Temperature"] > maxtemperature or data["Temperature"] < mintemperature:
-                client.publish("pisid_mazeact", '{"Type": "AcOn", "Player": 13}')
-                print("Temperature out of bounds! Turning AC on.")
+            if data["Temperature"] > warn_high_temp or data["Temperature"] < warn_low_temp:
+                client.publish("pisid_mazeact", "{Type: AcOn, Player: 13}")
+                print("Temperature approaching limit! Turning AC on.")
             elif data["Temperature"] == normaltemperature:
-                client.publish("pisid_mazeact", '{"Type": "AcOff", "Player": 13}')
-                
+                client.publish("pisid_mazeact", "{Type: AcOff, Player: 13}")
+                print("Temperature is normal! Turning AC off.")
         elif msg.topic == "pisid_mazemov_13":
             mongo.db["Motion"].insert_one(data)
             print(f"[Thread 3] Motion Sensor: {data['Marsami']} Marsamis")
@@ -83,18 +92,19 @@ def mongo_to_mqtt(collection_name, topic, client_id):
         documentos = mongo.db[collection_name].find({"migrated": False})
         for d in documentos:
             mongo.db[collection_name].update_one({"_id": d["_id"]}, {"$set": {"migrated": True}})
-            d["migrated"] = True
-            
+
             if "_id" in d:
                 del d["_id"]
-            
+
+            if "migrated" in d:
+                del d["migrated"]
+
             payload = {
                 "collection": collection_name,
                 "data": d
             }
-            
+
             client.publish(topic, json.dumps(payload))
-            print(f"[Thread {collection_name}] Relayed data through MQTT tunnel on topic: {topic}.")
                 
         time.sleep(1)
 
