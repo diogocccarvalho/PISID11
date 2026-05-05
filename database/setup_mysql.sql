@@ -89,3 +89,25 @@ CREATE TABLE MedicoesPassagem (
     FOREIGN KEY (equipa) REFERENCES Equipa(idEquipa),
     FOREIGN KEY (simulacao) REFERENCES Simulacao(idSimulacao)
 );
+
+
+CREATE USER 'Admistrador'@'%' IDENTIFIED BY 'passw0rd';
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON pisid.Utilizador, pisid.Equipa, pisid.Simulacao, pisid.Sala, pisid.Som, pisid.Temperatura, pisid.Mensagens, pisid.OcupacaoLabirinto, pisid.MedicoesPassagem TO 'Admistrador'@'%';
+
+CREATE USER 'Investigador'@'%' IDENTIFIED BY 'Investig0';
+
+GRANT SELECT, INSERT, UPDATE ON pisid.Simulacao, pisid.OcupacaoLabirinto TO 'Investigador'@'%';
+
+GRANT SELECT, INSERT ON pisid.Som, pisid.Temperatura, pisid.Mensagens, pisid.MedicoesPassagem TO 'Investigador'@'%';
+
+GRANT SELECT, UPDATE ON pisid.Utilizador TO 'Investigador'@'%';
+
+GRANT SELECT ON pisid.Equipa, pisid.Sala TO 'Investigador'@'%';
+
+CREATE USER 'Android'@'%' IDENTIFIED BY 'Iphone';
+
+GRANT SELECT ON pisid.Simulacao, pisid.Sala, pisid.Mensagens, pisid.OcupacaoLabirinto TO 'Android'@'%';
+
+
+FLUSH PRIVILEGES;
