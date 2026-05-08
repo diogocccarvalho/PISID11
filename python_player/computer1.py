@@ -20,10 +20,10 @@ warn_high_temp = 0
 warn_low_temp = 0
 warn_noise = 0
 
-TEMP_OUTLIER_MIN = -20.0
-TEMP_OUTLIER_MAX = 80.0
-NOISE_OUTLIER_MIN = 0.0     # O som não deve ser inferior a 0 dB
-NOISE_OUTLIER_MAX = 150.0
+NOISE_OUTLIER_MIN = 0.0     
+NOISE_OUTLIER_MAX = 150.0   
+TEMP_DEVIATION_MAX = 10.0   # Desvio máximo permitido face à média
+recent_temperatures = []    # Guarda os últimos 5 valores válidos
 
 # Estado para contagem do Sistema de Pontos
 rooms_state = {}
@@ -58,7 +58,7 @@ def server_to_mongo():
         client.subscribe("pisid_mazemov_13")
 
     def on_message(client, userdata, msg):
-        global rooms_state
+        global rooms_state, recent_temperatures
         data = json.loads(msg.payload)
         data["migrated"] = False
         
@@ -86,14 +86,27 @@ def server_to_mongo():
             temp_val = data.get("Temperature", 0)
             
             # Deteção de outliers de temperatura
-            is_outlier = (temp_val < TEMP_OUTLIER_MIN or temp_val > TEMP_OUTLIER_MAX)
-            data["outlier"] = is_outlier
+            is_outlier = False
+            avg_temp = 0
             
+            # Só consegue calcular desvio se já houver leituras anteriores
+            if len(recent_temperatures) > 0:
+                avg_temp = sum(recent_temperatures) / len(recent_temperatures)
+                if abs(temp_val - avg_temp) > TEMP_DEVIATION_MAX:
+                    is_outlier = True
+            
+            data["outlier"] = is_outlier
             mongo.db["Temperature"].insert_one(data)
             
             if is_outlier:
-                print(f"[Thread 2] AVISO: Dado Sujo/Outlier de Temperatura ignorado: {temp_val} °C")
+                print(f"[Thread 2] AVISO: Dado Sujo/Outlier Temp: {temp_val} °C ignorado! (Desvio de {(abs(temp_val - avg_temp)):.1f}°C face à média de {avg_temp:.1f}°C)")
             else:
+                # Se o dado é válido, adiciona ao histórico
+                recent_temperatures.append(temp_val)
+                # Mantém a lista apenas com os últimos 5 valores
+                if len(recent_temperatures) > 5:
+                    recent_temperatures.pop(0)
+                    
                 print(f"[Thread 2] Temperature Sensor: {temp_val} °C")
                 if temp_val > warn_high_temp or temp_val < warn_low_temp:
                     client.publish("pisid_mazeact", "{Type: AcOn, Player: 13}")
@@ -105,7 +118,7 @@ def server_to_mongo():
         elif msg.topic == "pisid_mazemov_13":
             mongo.db["Motion"].insert_one(data)
             
-            # Lógica do Sistema de Pontos
+            # Lógica do sistema de pontos
             marsami_id = data.get("Marsami")
             room_origin = data.get("Room Origin")
             room_destiny = data.get("Room Destiny")
@@ -113,20 +126,17 @@ def server_to_mongo():
             if marsami_id is not None and room_destiny is not None:
                 m_type = "even" if (marsami_id % 2 == 0) else "odd"
                 
-                # Remover da sala de origem
                 if room_origin != 0 and room_origin is not None:
                     if room_origin not in rooms_state:
                         rooms_state[room_origin] = {"odd": 0, "even": 0, "triggers": 0}
                     if rooms_state[room_origin][m_type] > 0:
                         rooms_state[room_origin][m_type] -= 1
 
-                # Adicionar à sala de destino
                 if room_destiny != 0:
                     if room_destiny not in rooms_state:
                         rooms_state[room_destiny] = {"odd": 0, "even": 0, "triggers": 0}
                     rooms_state[room_destiny][m_type] += 1
                     
-                    # Avaliar condição de gatilho
                     state = rooms_state[room_destiny]
                     if state["odd"] > 0 and state["odd"] == state["even"]:
                         if state["triggers"] < 3: 
