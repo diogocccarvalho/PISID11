@@ -36,6 +36,7 @@ CREATE TABLE Som (
     hora DATETIME NOT NULL,
     som FLOAT NOT NULL,
     idSimulacao INT NOT NULL,
+    outlier TINYINT(1) DEFAULT 0,
     PRIMARY KEY (idSom),
     FOREIGN KEY (idSimulacao) REFERENCES Simulacao(idSimulacao)
 );
@@ -45,6 +46,7 @@ CREATE TABLE Temperatura (
     hora DATETIME NOT NULL,
     temperatura FLOAT NOT NULL,
     idSimulacao INT NOT NULL,
+    outlier TINYINT(1) DEFAULT 0,
     PRIMARY KEY (idTemperatura),
     FOREIGN KEY (idSimulacao) REFERENCES Simulacao(idSimulacao)
 );
@@ -108,6 +110,5 @@ GRANT SELECT ON pisid.Equipa, pisid.Sala TO 'Investigador'@'%';
 CREATE USER 'Android'@'%' IDENTIFIED BY 'Iphone';
 
 GRANT SELECT ON pisid.Simulacao, pisid.Sala, pisid.Mensagens, pisid.OcupacaoLabirinto TO 'Android'@'%';
-
 
 FLUSH PRIVILEGES;
