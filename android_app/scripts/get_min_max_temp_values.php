@@ -9,9 +9,18 @@ $username = $_REQUEST['username'] ?? '';
 $password = $_REQUEST['password'] ?? '';
 $database = $_REQUEST['database'] ?? '';
 
-$host = 'mysql'; // No Docker use o nome do serviço
+$config = @parse_ini_file(__DIR__ . '/../../config.ini', true);
+if ($database === 'maze') {
+    $host = $config['cloud_mysql']['host'] ?? '194.210.86.10';
+    $db_user = $config['cloud_mysql']['user'] ?? 'aluno';
+    $db_pass = $config['cloud_mysql']['password'] ?? 'aluno';
+} else {
+    $host = $config['mysql_local']['host'] ?? 'localhost';
+    $db_user = $config['mysql_local']['user'] ?? 'root';
+    $db_pass = $config['mysql_local']['password'] ?? '';
+}
 
-$conn = new mysqli($host, $username, $password, $database);
+$conn = new mysqli($host, $db_user, $db_pass, $database);
 
 if ($conn->connect_error) {
     $response['message'] = "Erro de ligação: " . $conn->connect_error;
