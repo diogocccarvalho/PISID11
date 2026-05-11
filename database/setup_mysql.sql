@@ -36,8 +36,16 @@ CREATE TABLE Som (
     hora DATETIME NOT NULL,
     som FLOAT NOT NULL,
     idSimulacao INT NOT NULL,
-    outlier TINYINT(1) DEFAULT 0,
     PRIMARY KEY (idSom),
+    FOREIGN KEY (idSimulacao) REFERENCES Simulacao(idSimulacao)
+);
+
+CREATE TABLE SomOutlier (
+    idSomOutlier INT NOT NULL AUTO_INCREMENT,
+    hora DATETIME NOT NULL,
+    som FLOAT NOT NULL,
+    idSimulacao INT NOT NULL,
+    PRIMARY KEY (idSomOutlier),
     FOREIGN KEY (idSimulacao) REFERENCES Simulacao(idSimulacao)
 );
 
@@ -46,8 +54,16 @@ CREATE TABLE Temperatura (
     hora DATETIME NOT NULL,
     temperatura FLOAT NOT NULL,
     idSimulacao INT NOT NULL,
-    outlier TINYINT(1) DEFAULT 0,
     PRIMARY KEY (idTemperatura),
+    FOREIGN KEY (idSimulacao) REFERENCES Simulacao(idSimulacao)
+);
+
+CREATE TABLE TemperaturaOutlier (
+    idTemperaturaOutlier INT NOT NULL AUTO_INCREMENT,
+    hora DATETIME NOT NULL,
+    temperatura FLOAT NOT NULL,
+    idSimulacao INT NOT NULL,
+    PRIMARY KEY (idTemperaturaOutlier),
     FOREIGN KEY (idSimulacao) REFERENCES Simulacao(idSimulacao)
 );
 
@@ -95,7 +111,7 @@ CREATE TABLE MedicoesPassagem (
 
 CREATE USER 'Admistrador'@'%' IDENTIFIED BY 'passw0rd';
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON pisid.Utilizador, pisid.Equipa, pisid.Simulacao, pisid.Sala, pisid.Som, pisid.Temperatura, pisid.Mensagens, pisid.OcupacaoLabirinto, pisid.MedicoesPassagem TO 'Admistrador'@'%';
+GRANT SELECT, INSERT, UPDATE, DELETE ON pisid.Utilizador, pisid.Equipa, pisid.Simulacao, pisid.Sala, pisid.Som, pisid.SomOutlier, pisid.Temperatura, pisid.TemperaturaOutlier, pisid.Mensagens, pisid.OcupacaoLabirinto, pisid.MedicoesPassagem TO 'Admistrador'@'%';
 
 CREATE USER 'Investigador'@'%' IDENTIFIED BY 'Investig0';
 

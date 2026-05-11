@@ -84,9 +84,9 @@ def server_to_mongo():
                     recent_sounds.pop(0)
                 print(f"[Thread 1] Sound Sensor: {sound_val} dB")
                 if sound_val > warn_noise:
-                    client.publish("pisid_mazeact", "{Type: CloseAllDoor, Player: 13}")
+                    client.publish("pisid_mazeact", "{Type: CloseAllDoor, Player: 13}", qos=2)
                 elif sound_val <= normalnoise:
-                    client.publish("pisid_mazeact", "{Type: OpenAllDoor, Player: 13}")
+                    client.publish("pisid_mazeact", "{Type: OpenAllDoor, Player: 13}", qos=2)
 
         elif msg.topic == "pisid_mazetemp_13":
             temp_val = data.get("Temperature", 0)
@@ -95,7 +95,6 @@ def server_to_mongo():
             is_outlier = False
             avg_temp = 0
             
-            # Só consegue calcular desvio se já houver leituras anteriores
             if len(recent_temperatures) > 0:
                 avg_temp = sum(recent_temperatures) / len(recent_temperatures)
                 if abs(temp_val - avg_temp) > TEMP_DEVIATION_MAX:
@@ -107,19 +106,24 @@ def server_to_mongo():
             if is_outlier:
                 print(f"[Thread 2] AVISO: Dado Sujo/Outlier Temp: {temp_val} °C ignorado! (Desvio de {(abs(temp_val - avg_temp)):.1f}°C face à média de {avg_temp:.1f}°C)")
             else:
-                # Se o dado é válido, adiciona ao histórico
                 recent_temperatures.append(temp_val)
-                # Mantém a lista apenas com os últimos 5 valores
                 if len(recent_temperatures) > 5:
                     recent_temperatures.pop(0)
                     
                 print(f"[Thread 2] Temperature Sensor: {temp_val} °C")
-                if temp_val > warn_high_temp or temp_val < warn_low_temp:
-                    client.publish("pisid_mazeact", "{Type: AcOn, Player: 13}")
-                    print("Temperature approaching limit! Turning AC on.")
-                elif temp_val == normaltemperature:
-                    client.publish("pisid_mazeact", "{Type: AcOff, Player: 13}")
-                    print("Temperature is normal! Turning AC off.")
+                
+                if temp_val > warn_high_temp:
+                    # Se está muito quente, liga o AC
+                    client.publish("pisid_mazeact", "{Type: AcOn, Player: 13}", qos=2)
+                    print("Temperature approaching UPPER limit! Turning AC ON.")
+                elif temp_val < warn_low_temp:
+                    # Se está muito frio, garante que o AC desliga
+                    client.publish("pisid_mazeact", "{Type: AcOff, Player: 13}", qos=2)
+                    print("Temperature approaching LOWER limit! Turning AC OFF.")
+                elif temp_val <= normaltemperature:
+                    # Se já arrefeceu até ao normal, desliga o AC para poupar e não arrefecer demais
+                    client.publish("pisid_mazeact", "{Type: AcOff, Player: 13}", qos=2)
+                    print("Temperature is normal! Turning AC OFF.")
 
         elif msg.topic == "pisid_mazemov_13":
             mongo.db["Motion"].insert_one(data)
@@ -148,7 +152,7 @@ def server_to_mongo():
                         if state["triggers"] < 3: 
                             state["triggers"] += 1
                             trigger_msg = f"{{Type: Score, Player:13, Room: {room_destiny}}}"
-                            client.publish("pisid_mazeact", trigger_msg)
+                            client.publish("pisid_mazeact", trigger_msg, qos=2)
                             print(f"+++ PONTOS! Gatilho disparado na Sala {room_destiny} (Odd: {state['odd']} | Even: {state['even']}) - Tentativa: {state['triggers']}/3")
 
     client = mqtt.Client(client_id="Thread1_Sensors_A", clean_session=False)
@@ -172,7 +176,7 @@ def mongo_to_mqtt(collection_name, topic, client_id):
             if "migrated" in d: del d["migrated"]
             if "published" in d: del d["published"]
             payload = {"collection": collection_name, "mongo_id": mongo_id, "data": d}
-            client.publish(topic, json.dumps(payload))
+            client.publish(topic, json.dumps(payload), qos=2)
         time.sleep(1)
 
 # MAIN do pc 1

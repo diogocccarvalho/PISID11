@@ -5,16 +5,7 @@
 
 -- ============================================================
 -- ALTERAÇÕES ÀS TABELAS
--- (colunas em falta que os triggers e SPs precisam)
 -- ============================================================
-
--- Adicionar coluna anomalo à tabela Som
--- (necessário para o trigger trg_outlier_temperatura e para
---  o trg_alerta_som não disparar em valores inválidos)
-ALTER TABLE Som ADD COLUMN anomalo TINYINT NOT NULL DEFAULT 0;
-
--- Adicionar coluna anomalo à tabela Temperatura
-ALTER TABLE Temperatura ADD COLUMN anomalo TINYINT NOT NULL DEFAULT 0;
 
 -- Adicionar limites de alerta à tabela Simulacao
 -- (os triggers de alerta precisam de saber os limites definidos)
@@ -30,7 +21,6 @@ ALTER TABLE Simulacao MODIFY COLUMN dataHoraInicio DATETIME DEFAULT NULL;
 
 -- ============================================================
 -- STORED PROCEDURES
--- (criadas ANTES dos triggers porque os triggers chamam SPs)
 -- ============================================================
 
 -- ------------------------------------------------------------
@@ -309,7 +299,9 @@ BEGIN
 
     -- Limpar dados dos sensores desta simulação
     DELETE FROM Som WHERE idSimulacao = p_idSimulacao;
+    DELETE FROM SomOutlier WHERE idSimulacao = p_idSimulacao;
     DELETE FROM Temperatura WHERE idSimulacao = p_idSimulacao;
+    DELETE FROM TemperaturaOutlier WHERE idSimulacao = p_idSimulacao;
     DELETE FROM MedicoesPassagem WHERE simulacao = p_idSimulacao;
 
     -- Repor ocupação do labirinto a zeros
@@ -341,6 +333,7 @@ DELIMITER ;
 -- Verifica se um valor é outlier com base nos últimos 5 valores
 -- usando Z-Score. Retorna 1 se outlier, 0 se normal.
 -- Camada extra de segurança além do Python.
+-- (Removido o anomalo = 0 porque a tabela principal só tem dados normais agora)
 -- ------------------------------------------------------------
 DELIMITER $$
 DROP PROCEDURE IF EXISTS Verificar_Outlier$$
@@ -361,7 +354,7 @@ BEGIN
         SELECT AVG(som), STD(som) INTO v_media, v_desvio
         FROM (
             SELECT som FROM Som
-            WHERE idSimulacao = p_idSimulacao AND anomalo = 0
+            WHERE idSimulacao = p_idSimulacao
             ORDER BY hora DESC LIMIT 5
         ) AS ultimos;
 
@@ -369,7 +362,7 @@ BEGIN
         SELECT AVG(temperatura), STD(temperatura) INTO v_media, v_desvio
         FROM (
             SELECT temperatura FROM Temperatura
-            WHERE idSimulacao = p_idSimulacao AND anomalo = 0
+            WHERE idSimulacao = p_idSimulacao
             ORDER BY hora DESC LIMIT 5
         ) AS ultimos;
     END IF;
@@ -387,38 +380,17 @@ DELIMITER ;
 
 -- ============================================================
 -- TRIGGERS
--- (criados DEPOIS dos SPs porque os triggers chamam SPs)
 -- ============================================================
+-- Nota: O trg_outlier_temperatura foi removido, uma vez que o script Python
+-- agora divide automaticamente os dados na inserção pelas respetivas
+-- tabelas (Temperatura ou TemperaturaOutlier).
 
 -- ------------------------------------------------------------
--- TRIGGER 1. trg_outlier_temperatura
--- Antes de inserir na tabela Temperatura, verifica se o valor
--- é impossível fisicamente. Se sim, marca como anómalo.
--- (outliers de som são tratados em Python pelo Vítor)
--- ------------------------------------------------------------
-DELIMITER $$
-DROP TRIGGER IF EXISTS trg_outlier_temperatura$$
-CREATE TRIGGER trg_outlier_temperatura
-BEFORE INSERT ON Temperatura
-FOR EACH ROW
-BEGIN
-    IF NEW.temperatura IS NULL OR NEW.temperatura < -50 OR NEW.temperatura > 100 THEN
-        SET NEW.anomalo = 1;
-    ELSE
-        SET NEW.anomalo = 0;
-    END IF;
-END$$
-DELIMITER ;
-
-
--- ------------------------------------------------------------
--- TRIGGER 2. trg_alerta_som
+-- TRIGGER 1. trg_alerta_som
 -- Depois de inserir na tabela Som, verifica se o valor
 -- ultrapassa o limite máximo definido na simulação ativa.
 -- Se sim, e se não foi gerado alerta nos últimos 30 segundos,
 -- insere alerta na tabela Mensagens.
--- Anti-spam: dentro dos 30s só alerta se valor for superior
--- ao do último alerta registado.
 -- ------------------------------------------------------------
 DELIMITER $$
 DROP TRIGGER IF EXISTS trg_alerta_som$$
@@ -471,11 +443,11 @@ DELIMITER ;
 
 
 -- ------------------------------------------------------------
--- TRIGGER 3. trg_alerta_temperatura
--- Depois de inserir na tabela Temperatura (só registos normais),
--- verifica se o valor ultrapassa o máximo ou o mínimo.
--- Se sim, e se não foi gerado alerta nos últimos 30 segundos,
--- insere alerta na tabela Mensagens.
+-- TRIGGER 2. trg_alerta_temperatura
+-- Depois de inserir na tabela Temperatura, verifica se o valor 
+-- ultrapassa o máximo ou o mínimo. Se sim, e se não foi gerado 
+-- alerta nos últimos 30 segundos, insere alerta.
+-- (Retirada a verificação de anomalo, a tabela agora só possui dados seguros)
 -- ------------------------------------------------------------
 DELIMITER $$
 DROP TRIGGER IF EXISTS trg_alerta_temperatura$$
@@ -491,51 +463,47 @@ BEGIN
     DECLARE v_mensagem VARCHAR(255);
     DECLARE v_disparar INT DEFAULT 0;
 
-    -- Só processa se não for anómalo
-    IF NEW.anomalo = 0 THEN
+    -- Buscar limites da simulação a que este registo pertence
+    SELECT limTemperaturaMax, limTemperaturaMin INTO v_limite_max, v_limite_min
+    FROM Simulacao
+    WHERE idSimulacao = NEW.idSimulacao;
 
-        -- Buscar limites da simulação a que este registo pertence
-        SELECT limTemperaturaMax, limTemperaturaMin INTO v_limite_max, v_limite_min
-        FROM Simulacao
-        WHERE idSimulacao = NEW.idSimulacao;
+    IF v_limite_max IS NOT NULL THEN
 
-        IF v_limite_max IS NOT NULL THEN
+        IF NEW.temperatura > v_limite_max THEN
+            SET v_mensagem = CONCAT('Alerta: Temperatura acima do máximo - ', NEW.temperatura, ' °C');
+            SET v_disparar = 1;
+        ELSEIF v_limite_min IS NOT NULL AND NEW.temperatura < v_limite_min THEN
+            SET v_mensagem = CONCAT('Alerta: Temperatura abaixo do mínimo - ', NEW.temperatura, ' °C');
+            SET v_disparar = 1;
+        END IF;
 
-            IF NEW.temperatura > v_limite_max THEN
-                SET v_mensagem = CONCAT('Alerta: Temperatura acima do máximo - ', NEW.temperatura, ' °C');
-                SET v_disparar = 1;
-            ELSEIF v_limite_min IS NOT NULL AND NEW.temperatura < v_limite_min THEN
-                SET v_mensagem = CONCAT('Alerta: Temperatura abaixo do mínimo - ', NEW.temperatura, ' °C');
-                SET v_disparar = 1;
+        IF v_disparar = 1 THEN
+
+            SELECT hora, leitura INTO v_ultimo_alerta, v_ultimo_valor
+            FROM Mensagens
+            WHERE tipoALERTA = 'Temperatura'
+            ORDER BY hora DESC
+            LIMIT 1;
+
+            IF v_ultimo_alerta IS NOT NULL THEN
+                SET v_segundos = TIMESTAMPDIFF(SECOND, v_ultimo_alerta, NOW());
+            ELSE
+                SET v_segundos = 9999;
             END IF;
 
-            IF v_disparar = 1 THEN
-
-                SELECT hora, leitura INTO v_ultimo_alerta, v_ultimo_valor
-                FROM Mensagens
-                WHERE tipoALERTA = 'Temperatura'
-                ORDER BY hora DESC
-                LIMIT 1;
-
-                IF v_ultimo_alerta IS NOT NULL THEN
-                    SET v_segundos = TIMESTAMPDIFF(SECOND, v_ultimo_alerta, NOW());
-                ELSE
-                    SET v_segundos = 9999;
-                END IF;
-
-                IF v_segundos > 30 OR v_ultimo_valor IS NULL OR ABS(NEW.temperatura) > ABS(v_ultimo_valor) THEN
-                    CALL Inserir_Alerta(
-                        NOW(),
-                        NOW(),
-                        v_mensagem,
-                        NULL,
-                        'Temperatura',
-                        NEW.temperatura,
-                        'Temperatura'
-                    );
-                END IF;
-
+            IF v_segundos > 30 OR v_ultimo_valor IS NULL OR ABS(NEW.temperatura) > ABS(v_ultimo_valor) THEN
+                CALL Inserir_Alerta(
+                    NOW(),
+                    NOW(),
+                    v_mensagem,
+                    NULL,
+                    'Temperatura',
+                    NEW.temperatura,
+                    'Temperatura'
+                );
             END IF;
+
         END IF;
     END IF;
 END$$
@@ -543,7 +511,7 @@ DELIMITER ;
 
 
 -- ------------------------------------------------------------
--- TRIGGER 4. trg_atualizar_ocupacao
+-- TRIGGER 3. trg_atualizar_ocupacao
 -- Depois de inserir na tabela MedicoesPassagem, atualiza a
 -- contagem de marsamis odd/even na tabela OcupacaoLabirinto.
 -- Decrementa na sala de origem e incrementa na sala de destino.
