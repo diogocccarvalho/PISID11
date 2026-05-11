@@ -11,6 +11,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 import database.mysql_connect as mysql_db
 import database.cloud_mysql_connect as cloud
+import database.mongo_connect as mongo
+from bson import ObjectId
 
 # Thresholds carregados da cloud
 maxtemperature = 0
@@ -113,7 +115,11 @@ def process_message(payload):
             cursor.execute("INSERT INTO MedicoesPassagem (numeroMarsami, salaOrigem, salaDestino, status, hora, simulacao, equipa) VALUES (%s, %s, %s, %s, NOW(), %s, %s)", data)
 
         conn.commit()
-        
+
+        mongo_id = payload.get("mongo_id")
+        if mongo_id:
+            mongo.db[collection_name].update_one({"_id": ObjectId(mongo_id)}, {"$set": {"migrated": True}})
+
         tag_log = " (OUTLIER)" if is_outlier else ""
         print(f"[Computer B] Inserido {collection_name}{tag_log} no MySQL.")
 
@@ -124,6 +130,19 @@ def process_message(payload):
             cursor.close()
         if 'conn' in locals() and conn.is_connected():
             conn.close()
+
+def processar_pendentes():
+    print("[Computador 2] A processar dados pendentes do MongoDB...")
+    total = 0
+    for collection in ["Sound", "Temperature", "Motion"]:
+        docs = list(mongo.db[collection].find({"published": True, "migrated": {"$ne": True}}))
+        for doc in docs:
+            mongo_id = str(doc["_id"])
+            d = {k: v for k, v in doc.items() if k not in ["_id", "migrated", "published"]}
+            payload = {"collection": collection, "mongo_id": mongo_id, "data": d}
+            process_message(payload)
+            total += 1
+    print(f"[Computador 2] {total} documentos pendentes processados.")
 
 # Mqtt -> Sql
 def mqtt_subscriber_thread(topic, client_id):
@@ -145,6 +164,7 @@ def mqtt_subscriber_thread(topic, client_id):
 if __name__ == "__main__":
     print("[Computador 2] A começar...")
     connect_cloud()
+    processar_pendentes()
 
     t_sound  = threading.Thread(target=mqtt_subscriber_thread, args=("pisid_maze_data_sound",  "Sub_Sound_B"),  daemon=True)
     t_temp   = threading.Thread(target=mqtt_subscriber_thread, args=("pisid_maze_data_temp",   "Sub_Temp_B"),   daemon=True)

@@ -20,9 +20,10 @@ warn_high_temp = 0
 warn_low_temp = 0
 warn_noise = 0
 
-NOISE_OUTLIER_MIN = 0.0     
-NOISE_OUTLIER_MAX = 150.0   
-TEMP_DEVIATION_MAX = 10.0   # Desvio máximo permitido face à média
+recent_sounds = []  # Guarda os últimos 5 valores válidos
+SOUND_DEVIATION_MAX = 5.0   # Desvio máximo permitido face à média
+
+TEMP_DEVIATION_MAX = 5.0   # Desvio máximo permitido face à média
 recent_temperatures = []    # Guarda os últimos 5 valores válidos
 
 # Estado para contagem do Sistema de Pontos
@@ -53,34 +54,39 @@ def connect_cloud():
 def server_to_mongo():
     def on_connect(client, userdata, flags, rc):
         print(f"[Thread 1] Connected to Sensor Broker with code {rc}")
-        client.subscribe("pisid_mazesound_13")
-        client.subscribe("pisid_mazetemp_13")
-        client.subscribe("pisid_mazemov_13")
+        client.subscribe("pisid_mazesound_13", 2)
+        client.subscribe("pisid_mazetemp_13", 2)
+        client.subscribe("pisid_mazemov_13", 2)
 
     def on_message(client, userdata, msg):
-        global rooms_state, recent_temperatures
+        global rooms_state, recent_temperatures, recent_sounds
         data = json.loads(msg.payload)
         data["migrated"] = False
-        
+
         if msg.topic == "pisid_mazesound_13":
             sound_val = data.get("Sound", 0)
-            
-            # Deteção de outliers de som
-            is_outlier = (sound_val < NOISE_OUTLIER_MIN or sound_val > NOISE_OUTLIER_MAX)
+            is_outlier = False
+            avg_sound = 0
+
+            if len(recent_sounds) > 0:
+                avg_sound = sum(recent_sounds) / len(recent_sounds)
+                if abs(sound_val - avg_sound) > SOUND_DEVIATION_MAX:
+                    is_outlier = True
+
             data["outlier"] = is_outlier
-            
             mongo.db["Sound"].insert_one(data)
-            
+
             if is_outlier:
-                print(f"[Thread 1] AVISO: Dado Sujo/Outlier de Som ignorado: {sound_val} dB")
+                print(f"[Thread 1] AVISO: Outlier de Som: {sound_val} dB (desvio {abs(sound_val - avg_sound):.1f} dB)")
             else:
+                recent_sounds.append(sound_val)
+                if len(recent_sounds) > 5:
+                    recent_sounds.pop(0)
                 print(f"[Thread 1] Sound Sensor: {sound_val} dB")
                 if sound_val > warn_noise:
                     client.publish("pisid_mazeact", "{Type: CloseAllDoor, Player: 13}")
-                    print("Noise level too high! Closing all doors.")
                 elif sound_val <= normalnoise:
                     client.publish("pisid_mazeact", "{Type: OpenAllDoor, Player: 13}")
-                    print("Noise level is normal! Opening all doors.")
 
         elif msg.topic == "pisid_mazetemp_13":
             temp_val = data.get("Temperature", 0)
@@ -145,7 +151,7 @@ def server_to_mongo():
                             client.publish("pisid_mazeact", trigger_msg)
                             print(f"+++ PONTOS! Gatilho disparado na Sala {room_destiny} (Odd: {state['odd']} | Even: {state['even']}) - Tentativa: {state['triggers']}/3")
 
-    client = mqtt.Client(client_id="Thread1_Sensors_A")
+    client = mqtt.Client(client_id="Thread1_Sensors_A", clean_session=False)
     client.on_connect = on_connect
     client.on_message = on_message
     client.connect("broker.emqx.io", 1883, 60)
@@ -158,12 +164,14 @@ def mongo_to_mqtt(collection_name, topic, client_id):
     client.loop_start()
 
     while True:
-        documentos = mongo.db[collection_name].find({"migrated": False})
+        documentos = mongo.db[collection_name].find({"published": {"$ne": True}})
         for d in documentos:
-            mongo.db[collection_name].update_one({"_id": d["_id"]}, {"$set": {"migrated": True}})
+            mongo_id = str(d["_id"])
+            mongo.db[collection_name].update_one({"_id": d["_id"]}, {"$set": {"published": True}})
             if "_id" in d: del d["_id"]
             if "migrated" in d: del d["migrated"]
-            payload = {"collection": collection_name, "data": d}
+            if "published" in d: del d["published"]
+            payload = {"collection": collection_name, "mongo_id": mongo_id, "data": d}
             client.publish(topic, json.dumps(payload))
         time.sleep(1)
 
