@@ -72,8 +72,7 @@ def process_message(payload):
     collection_name = payload["collection"]
     d = payload["data"]
 
-    # Extrair a flag de outlier
-    is_outlier = 1 if d.get("outlier", False) else 0
+    is_outlier = True if d.get("outlier", False) else False
 
     try:
         conn = mysql.connector.connect(**mysql_db.db_config)
@@ -88,28 +87,34 @@ def process_message(payload):
 
         if collection_name == "Sound":
             valor = d['Sound']
-            data = (valor, d['Hour'], idSimulacao, is_outlier)
-            cursor.execute("INSERT INTO Som (som, hora, idSimulacao, outlier) VALUES (%s, %s, %s, %s)", data)
-
-            # Apenas envia alertas se o dado NÃO for um outlier
-            if not is_outlier and valor > warn_noise and pode_enviar_alerta("SOUND_HIGH"):
-                inserir_alerta(cursor, "Sound", valor, "SOUND_HIGH",
-                               f"Ruído a aproximar-se do limite máximo ({maxnoise:.1f} dB)")
+            data = (valor, d['Hour'], idSimulacao)
+            
+            # Inserir na tabela correta dependendo de is_outlier
+            if is_outlier:
+                cursor.execute("INSERT INTO SomOutlier (som, hora, idSimulacao) VALUES (%s, %s, %s)", data)
+            else:
+                cursor.execute("INSERT INTO Som (som, hora, idSimulacao) VALUES (%s, %s, %s)", data)
+                # Apenas envia alertas se o dado NÃO for um outlier
+                if valor > warn_noise and pode_enviar_alerta("SOUND_HIGH"):
+                    inserir_alerta(cursor, "Sound", valor, "SOUND_HIGH",
+                                   f"Ruído a aproximar-se do limite máximo ({maxnoise:.1f} dB)")
 
         elif collection_name == "Temperature":
             valor = d['Temperature']
-            data = (valor, d['Hour'], idSimulacao, is_outlier)
-            cursor.execute("INSERT INTO Temperatura (temperatura, hora, idSimulacao, outlier) VALUES (%s, %s, %s, %s)", data)
-
-            # Apenas envia alertas se o dado NÃO for um outlier
-            if not is_outlier:
+            data = (valor, d['Hour'], idSimulacao)
+            
+            # Inserir na tabela correta dependendo de is_outlier
+            if is_outlier:
+                cursor.execute("INSERT INTO TemperaturaOutlier (temperatura, hora, idSimulacao) VALUES (%s, %s, %s)", data)
+            else:
+                cursor.execute("INSERT INTO Temperatura (temperatura, hora, idSimulacao) VALUES (%s, %s, %s)", data)
+                # Apenas envia alertas se o dado NÃO for um outlier
                 if valor > warn_high_temp and pode_enviar_alerta("TEMP_HIGH"):
                     inserir_alerta(cursor, "Temperature", valor, "TEMP_HIGH",
                                    f"Temperatura a aproximar-se do limite máximo ({maxtemperature:.1f} °C)")
                 elif valor < warn_low_temp and pode_enviar_alerta("TEMP_LOW"):
                     inserir_alerta(cursor, "Temperature", valor, "TEMP_LOW",
                                    f"Temperatura a aproximar-se do limite mínimo ({mintemperature:.1f} °C)")
-
         elif collection_name == "Motion":
             data = (d['Marsami'], d['RoomOrigin'], d['RoomDestiny'], d['Status'], idSimulacao, d['Player'])
             cursor.execute("INSERT INTO MedicoesPassagem (numeroMarsami, salaOrigem, salaDestino, status, hora, simulacao, equipa) VALUES (%s, %s, %s, %s, NOW(), %s, %s)", data)
@@ -148,7 +153,7 @@ def processar_pendentes():
 def mqtt_subscriber_thread(topic, client_id):
     def on_connect(client, userdata, flags, rc):
         print(f"[Computer B] {client_id} conectado (código {rc}) -> a subscrever: {topic}")
-        client.subscribe(topic)
+        client.subscribe(topic, qos=2)
 
     def on_message(client, userdata, msg):
         payload = json.loads(msg.payload)

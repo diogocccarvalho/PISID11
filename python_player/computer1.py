@@ -172,7 +172,7 @@ def mongo_to_mqtt(collection_name, topic, client_id):
             if "migrated" in d: del d["migrated"]
             if "published" in d: del d["published"]
             payload = {"collection": collection_name, "mongo_id": mongo_id, "data": d}
-            client.publish(topic, json.dumps(payload))
+            client.publish(topic, json.dumps(payload), qos=2)
         time.sleep(1)
 
 # MAIN do pc 1
