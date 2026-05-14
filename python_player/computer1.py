@@ -57,6 +57,7 @@ def server_to_mongo():
         client.subscribe("pisid_mazesound_13", 2)
         client.subscribe("pisid_mazetemp_13", 2)
         client.subscribe("pisid_mazemov_13", 2)
+        client.subscribe("pisid_game_control_13", 2)
 
     def on_message(client, userdata, msg):
         global rooms_state, recent_temperatures, recent_sounds
@@ -124,6 +125,12 @@ def server_to_mongo():
                     # Se já arrefeceu até ao normal, desliga o AC para poupar e não arrefecer demais
                     client.publish("pisid_mazeact", "{Type: AcOff, Player: 13}", qos=2)
                     print("Temperature is normal! Turning AC OFF.")
+
+        elif msg.topic == "pisid_game_control_13":
+            recent_sounds.clear()
+            recent_temperatures.clear()
+            rooms_state.clear()
+            print("[Thread 1] Novo jogo — arrays reiniciados.")
 
         elif msg.topic == "pisid_mazemov_13":
             mongo.db["Motion"].insert_one(data)

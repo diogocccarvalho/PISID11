@@ -40,7 +40,7 @@ if ($conn->connect_error) {
 }
 
 // 3. Consulta
-$sql = "SELECT Sala, NumeroMarsamisEven, NumeroMarsamisOdd FROM ocupacaolabirinto";
+$sql = "SELECT Sala, NumeroEven, NumeroOdd FROM ocupacaolabirinto";
 $result = $conn->query($sql);
 
 if ($result) {

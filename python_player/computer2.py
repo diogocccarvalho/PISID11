@@ -149,6 +149,32 @@ def processar_pendentes():
             total += 1
     print(f"[Computador 2] {total} documentos pendentes processados.")
 
+def obter_simulacao_ativa():
+    try:
+        conn = mysql.connector.connect(**mysql_db.db_config)
+        cursor = conn.cursor()
+        cursor.execute("SELECT idSimulacao, dataHoraInicio FROM Simulacao WHERE estado = 'ativo' LIMIT 1")
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return (result[0], str(result[1])) if result else None
+    except mysql.connector.Error:
+        return None
+
+def monitorizar_simulacao():
+    last_key = obter_simulacao_ativa()
+    print(f"[Computador 2] Simulação ativa no arranque: {last_key}")
+    client = mqtt.Client(client_id="Monitor_Sim_B")
+    client.connect("broker.emqx.io", 1883, 60)
+    client.loop_start()
+    while True:
+        key = obter_simulacao_ativa()
+        if key is not None and key != last_key:
+            last_key = key
+            client.publish("pisid_game_control_13", json.dumps({"Type": "GameStart"}), qos=2)
+            print(f"[Computador 2] Novo jogo detetado (sim {key[0]}) — GameStart publicado.")
+        time.sleep(5)
+
 # Mqtt -> Sql
 def mqtt_subscriber_thread(topic, client_id):
     def on_connect(client, userdata, flags, rc):
@@ -171,10 +197,12 @@ if __name__ == "__main__":
     connect_cloud()
     processar_pendentes()
 
+    t_monitor = threading.Thread(target=monitorizar_simulacao, daemon=True)
     t_sound  = threading.Thread(target=mqtt_subscriber_thread, args=("pisid_maze_data_sound",  "Sub_Sound_B"),  daemon=True)
     t_temp   = threading.Thread(target=mqtt_subscriber_thread, args=("pisid_maze_data_temp",   "Sub_Temp_B"),   daemon=True)
     t_motion = threading.Thread(target=mqtt_subscriber_thread, args=("pisid_maze_data_motion", "Sub_Motion_B"), daemon=True)
 
+    t_monitor.start()
     t_sound.start()
     t_temp.start()
     t_motion.start()

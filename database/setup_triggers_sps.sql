@@ -9,9 +9,9 @@
 
 -- Adicionar limites de alerta à tabela Simulacao
 -- (os triggers de alerta precisam de saber os limites definidos)
-ALTER TABLE Simulacao ADD COLUMN limSom FLOAT DEFAULT NULL;
-ALTER TABLE Simulacao ADD COLUMN limTemperaturaMax FLOAT DEFAULT NULL;
-ALTER TABLE Simulacao ADD COLUMN limTemperaturaMin FLOAT DEFAULT NULL;
+ALTER TABLE Simulacao ADD COLUMN IF NOT EXISTS limSom FLOAT DEFAULT NULL;
+ALTER TABLE Simulacao ADD COLUMN IF NOT EXISTS limTemperaturaMax FLOAT DEFAULT NULL;
+ALTER TABLE Simulacao ADD COLUMN IF NOT EXISTS limTemperaturaMin FLOAT DEFAULT NULL;
 
 -- Corrigir dataHoraInicio para permitir NULL
 -- (a data de início só é preenchida quando a simulação arranca,
@@ -236,6 +236,20 @@ BEGIN
     SET estado = 'ativo',
         dataHoraInicio = NOW()
     WHERE idSimulacao = p_idSimulacao;
+
+    DELETE FROM OcupacaoLabirinto WHERE simulacao = p_idSimulacao;
+
+    INSERT INTO OcupacaoLabirinto (sala, NumeroOdd, NumeroEven, num_gatilhos, simulacao) VALUES
+    (1, 0, 0, 0, p_idSimulacao),
+    (2, 0, 0, 0, p_idSimulacao),
+    (3, 0, 0, 0, p_idSimulacao),
+    (4, 0, 0, 0, p_idSimulacao),
+    (5, 0, 0, 0, p_idSimulacao),
+    (6, 0, 0, 0, p_idSimulacao),
+    (7, 0, 0, 0, p_idSimulacao),
+    (8, 0, 0, 0, p_idSimulacao),
+    (9, 0, 0, 0, p_idSimulacao),
+    (10, 0, 0, 0, p_idSimulacao);
 END$$
 DELIMITER ;
 
@@ -386,132 +400,7 @@ DELIMITER ;
 -- tabelas (Temperatura ou TemperaturaOutlier).
 
 -- ------------------------------------------------------------
--- TRIGGER 1. trg_alerta_som
--- Depois de inserir na tabela Som, verifica se o valor
--- ultrapassa o limite máximo definido na simulação ativa.
--- Se sim, e se não foi gerado alerta nos últimos 30 segundos,
--- insere alerta na tabela Mensagens.
--- ------------------------------------------------------------
-DELIMITER $$
-DROP TRIGGER IF EXISTS trg_alerta_som$$
-CREATE TRIGGER trg_alerta_som
-AFTER INSERT ON Som
-FOR EACH ROW
-BEGIN
-    DECLARE v_limite FLOAT;
-    DECLARE v_ultimo_alerta DATETIME;
-    DECLARE v_ultimo_valor FLOAT;
-    DECLARE v_segundos INT;
-
-    -- Buscar limite de som da simulação a que este registo pertence
-    SELECT limSom INTO v_limite
-    FROM Simulacao
-    WHERE idSimulacao = NEW.idSimulacao;
-
-    -- Só processa se limite estiver definido e valor o ultrapassar
-    IF v_limite IS NOT NULL AND NEW.som > v_limite THEN
-
-        -- Buscar último alerta de ruído
-        SELECT hora, leitura INTO v_ultimo_alerta, v_ultimo_valor
-        FROM Mensagens
-        WHERE tipoALERTA = 'Ruído'
-        ORDER BY hora DESC
-        LIMIT 1;
-
-        IF v_ultimo_alerta IS NOT NULL THEN
-            SET v_segundos = TIMESTAMPDIFF(SECOND, v_ultimo_alerta, NOW());
-        ELSE
-            SET v_segundos = 9999;
-        END IF;
-
-        -- Disparar se passaram mais de 30s OU se valor é mais alto que o último alerta
-        IF v_segundos > 30 OR v_ultimo_valor IS NULL OR NEW.som > v_ultimo_valor THEN
-            CALL Inserir_Alerta(
-                NOW(),
-                NOW(),
-                CONCAT('Alerta: Nível de ruído elevado - ', NEW.som, ' dB'),
-                NULL,
-                'Som',
-                NEW.som,
-                'Ruído'
-            );
-        END IF;
-
-    END IF;
-END$$
-DELIMITER ;
-
-
--- ------------------------------------------------------------
--- TRIGGER 2. trg_alerta_temperatura
--- Depois de inserir na tabela Temperatura, verifica se o valor 
--- ultrapassa o máximo ou o mínimo. Se sim, e se não foi gerado 
--- alerta nos últimos 30 segundos, insere alerta.
--- (Retirada a verificação de anomalo, a tabela agora só possui dados seguros)
--- ------------------------------------------------------------
-DELIMITER $$
-DROP TRIGGER IF EXISTS trg_alerta_temperatura$$
-CREATE TRIGGER trg_alerta_temperatura
-AFTER INSERT ON Temperatura
-FOR EACH ROW
-BEGIN
-    DECLARE v_limite_max FLOAT;
-    DECLARE v_limite_min FLOAT;
-    DECLARE v_ultimo_alerta DATETIME;
-    DECLARE v_ultimo_valor FLOAT;
-    DECLARE v_segundos INT;
-    DECLARE v_mensagem VARCHAR(255);
-    DECLARE v_disparar INT DEFAULT 0;
-
-    -- Buscar limites da simulação a que este registo pertence
-    SELECT limTemperaturaMax, limTemperaturaMin INTO v_limite_max, v_limite_min
-    FROM Simulacao
-    WHERE idSimulacao = NEW.idSimulacao;
-
-    IF v_limite_max IS NOT NULL THEN
-
-        IF NEW.temperatura > v_limite_max THEN
-            SET v_mensagem = CONCAT('Alerta: Temperatura acima do máximo - ', NEW.temperatura, ' °C');
-            SET v_disparar = 1;
-        ELSEIF v_limite_min IS NOT NULL AND NEW.temperatura < v_limite_min THEN
-            SET v_mensagem = CONCAT('Alerta: Temperatura abaixo do mínimo - ', NEW.temperatura, ' °C');
-            SET v_disparar = 1;
-        END IF;
-
-        IF v_disparar = 1 THEN
-
-            SELECT hora, leitura INTO v_ultimo_alerta, v_ultimo_valor
-            FROM Mensagens
-            WHERE tipoALERTA = 'Temperatura'
-            ORDER BY hora DESC
-            LIMIT 1;
-
-            IF v_ultimo_alerta IS NOT NULL THEN
-                SET v_segundos = TIMESTAMPDIFF(SECOND, v_ultimo_alerta, NOW());
-            ELSE
-                SET v_segundos = 9999;
-            END IF;
-
-            IF v_segundos > 30 OR v_ultimo_valor IS NULL OR ABS(NEW.temperatura) > ABS(v_ultimo_valor) THEN
-                CALL Inserir_Alerta(
-                    NOW(),
-                    NOW(),
-                    v_mensagem,
-                    NULL,
-                    'Temperatura',
-                    NEW.temperatura,
-                    'Temperatura'
-                );
-            END IF;
-
-        END IF;
-    END IF;
-END$$
-DELIMITER ;
-
-
--- ------------------------------------------------------------
--- TRIGGER 3. trg_atualizar_ocupacao
+-- TRIGGER 1. trg_atualizar_ocupacao
 -- Depois de inserir na tabela MedicoesPassagem, atualiza a
 -- contagem de marsamis odd/even na tabela OcupacaoLabirinto.
 -- Decrementa na sala de origem e incrementa na sala de destino.
@@ -538,11 +427,11 @@ BEGIN
         IF v_tipo = 'odd' THEN
             UPDATE OcupacaoLabirinto
             SET NumeroOdd = NumeroOdd - 1
-            WHERE sala = NEW.salaOrigem AND simulacao = NEW.simulacao;
+            WHERE sala = NEW.salaOrigem AND simulacao = NEW.simulacao AND NumeroOdd > 0;
         ELSE
             UPDATE OcupacaoLabirinto
             SET NumeroEven = NumeroEven - 1
-            WHERE sala = NEW.salaOrigem AND simulacao = NEW.simulacao;
+            WHERE sala = NEW.salaOrigem AND simulacao = NEW.simulacao AND NumeroEven > 0;
         END IF;
     END IF;
 
