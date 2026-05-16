@@ -29,6 +29,9 @@ recent_temperatures = []    # Guarda os últimos 5 valores válidos
 # Estado para contagem do Sistema de Pontos
 rooms_state = {}
 
+# Só processa dados quando há simulação ativa
+simulation_active = False
+
 def connect_cloud():
     conn = mysql.connector.connect(**cloud.db_config)
     cursor = conn.cursor()
@@ -60,9 +63,25 @@ def server_to_mongo():
         client.subscribe("pisid_game_control_13", 2)
 
     def on_message(client, userdata, msg):
-        global rooms_state, recent_temperatures, recent_sounds
-        data = json.loads(msg.payload)
+        global rooms_state, recent_temperatures, recent_sounds, simulation_active
+
+        if msg.topic == "pisid_game_control_13":
+            simulation_active = True
+            recent_sounds.clear()
+            recent_temperatures.clear()
+            rooms_state.clear()
+            print("[Thread 1] Novo jogo — arrays reiniciados.")
+            return
+
+        try:
+            data = json.loads(msg.payload)
+        except Exception:
+            return
         data["migrated"] = False
+
+        if not simulation_active:
+            print(f"[Thread 1] Sem simulação ativa — mensagem ignorada ({msg.topic})")
+            return
 
         if msg.topic == "pisid_mazesound_13":
             sound_val = data.get("Sound", 0)
@@ -126,19 +145,13 @@ def server_to_mongo():
                     client.publish("pisid_mazeact", "{Type: AcOff, Player: 13}", qos=2)
                     print("Temperature is normal! Turning AC OFF.")
 
-        elif msg.topic == "pisid_game_control_13":
-            recent_sounds.clear()
-            recent_temperatures.clear()
-            rooms_state.clear()
-            print("[Thread 1] Novo jogo — arrays reiniciados.")
-
         elif msg.topic == "pisid_mazemov_13":
             mongo.db["Motion"].insert_one(data)
             
             # Lógica do sistema de pontos
             marsami_id = data.get("Marsami")
-            room_origin = data.get("Room Origin")
-            room_destiny = data.get("Room Destiny")
+            room_origin = data.get("RoomOrigin")
+            room_destiny = data.get("RoomDestiny")
             
             if marsami_id is not None and room_destiny is not None:
                 m_type = "even" if (marsami_id % 2 == 0) else "odd"
@@ -158,7 +171,7 @@ def server_to_mongo():
                     if state["odd"] > 0 and state["odd"] == state["even"]:
                         if state["triggers"] < 3: 
                             state["triggers"] += 1
-                            trigger_msg = f"{{Type: Score, Player:13, Room: {room_destiny}}}"
+                            trigger_msg = f"{{Type: Score, Player:1, Room:{room_destiny}}}"
                             client.publish("pisid_mazeact", trigger_msg, qos=2)
                             print(f"+++ PONTOS! Gatilho disparado na Sala {room_destiny} (Odd: {state['odd']} | Even: {state['even']}) - Tentativa: {state['triggers']}/3")
 

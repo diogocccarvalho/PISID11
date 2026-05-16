@@ -1,0 +1,91 @@
+/* 1. CONFIGURAÇÃO GERAL DO ECRÃ - ATUALIZADO COM A IMAGEM DE FUNDO */
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    
+    /* DEFINIÇÃO DA IMAGEM DE FUNDO:
+       - Substituímos a cor sólida pela nossa imagem 'fundo_login.jpg'.
+       - 'no-repeat': Impede que a imagem se repita se o ecrã for grande.
+       - 'center center fixed': Mantém a imagem centrada e fixa ao fazer scroll. */
+    background: #050a10 url('fundo_login.jpg') no-repeat center center fixed;
+    
+    /* AJUSTE DO TAMANHO DA IMAGEM:
+       - 'cover': Estica a imagem para garantir que ela preenche todo o ecrã, 
+                  mantendo a proporção (pode cortar um pouco as bordas). */
+    background-size: cover;
+    
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    color: #ffffff;
+    overflow: hidden; /* Impede barras de rolagem no ecrã de login */
+}
+
+/* 2. O PAINEL DE LOGIN (O tal "Vidro") */
+.login-container {
+    background: rgba(255, 255, 255, 0.05); /* Transparência subtil */
+    backdrop-filter: blur(10px);          /* Efeito de vidro fosco */
+    border: 1px solid #00f2ff;            /* Moldura Ciano Neon */
+    padding: 40px;
+    border-radius: 15px;
+    width: 350px;
+    text-align: center;
+    box-shadow: 0 0 20px rgba(0, 242, 255, 0.2);
+}
+
+/* 3. TÍTULOS E LABELS */
+h1 {
+    font-size: 1.1rem;
+    letter-spacing: 2px;
+    color: #00f2ff;
+    text-shadow: 0 0 8px #00f2ff;
+}
+
+label {
+    display: block;
+    text-align: left;
+    font-size: 0.7rem;
+    margin-top: 15px;
+    color: #00f2ff;
+    font-weight: bold;
+}
+
+/* 4. CAMPOS DE ENTRADA (Inputs) */
+input {
+    width: 100%;
+    padding: 12px;
+    margin-top: 5px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 5px;
+    color: white;
+    box-sizing: border-box; /* Garante que o padding não "estica" a caixa */
+    outline: none;
+}
+
+input:focus {
+    border-color: #00f2ff;
+    background: rgba(255, 255, 255, 0.15);
+}
+
+/* 5. O BOTÃO VERDE */
+.btn-entrar {
+    width: 100%;
+    padding: 15px;
+    background: #00ff00;
+    border: none;
+    border-radius: 5px;
+    color: #000;
+    font-weight: bold;
+    margin-top: 20px;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+    transition: 0.3s;
+}
+
+.btn-entrar:hover {
+    box-shadow: 0 0 20px #00ff00;
+    transform: scale(1.02);
+}
