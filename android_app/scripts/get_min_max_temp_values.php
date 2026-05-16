@@ -28,7 +28,7 @@ if ($conn->connect_error) {
     exit;
 }
 
-$sql = "SELECT minimo, maximo FROM configtemp LIMIT 1";
+$sql = "SELECT limTemperaturaMin AS minimo, limTemperaturaMax AS maximo FROM Simulacao WHERE estado = 'ativo' LIMIT 1";
 $result = $conn->query($sql);
 
 if ($result && $row = $result->fetch_assoc()) {
