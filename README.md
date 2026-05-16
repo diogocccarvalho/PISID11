@@ -84,4 +84,5 @@ A interface gráfica em tempo real para monitorização passiva.
 
 1. python .\python_player\computer2.py
 2. python .\python_player\computer1.py
-3. .\simulator\windows\mazerun.exe 13
+3. python .\python_player\player.py
+4. .\simulator\windows\mazerun.exe 13
