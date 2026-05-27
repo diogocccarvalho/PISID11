@@ -1,0 +1,234 @@
+================================================================
+PISID — RESUMO PARA DEFESA DO PROJETO
+================================================================
+
+================================================================
+VISAO GERAL DO SISTEMA
+================================================================
+
+O projeto é um sistema de monitorização de um labirinto em tempo
+real, com sensores de temperatura, som e movimento (marsamis).
+
+Componentes principais:
+  - Simulador (mazerun.exe): gera e envia dados dos sensores via MQTT
+  - Computador 1 (computer1.py): processamento e acao em tempo real
+  - Computador 2 (computer2.py): persistencia no MySQL local
+  - Player (player.py): estrategia de pontuacao
+  - Web Dashboard (PHP): gestao das simulacoes
+  - App Android: monitorizacao movel
+
+================================================================
+FLUXO DE DADOS
+================================================================
+
+1. Simulador publica via MQTT:
+     pisid_mazetemp_13   -> dados de temperatura
+     pisid_mazesound_13  -> dados de som
+     pisid_mazemov_13    -> movimentos dos marsamis
+
+2. Computador 1 recebe esses topicos:
+     - Deteta outliers (comparacao com media dos ultimos 5 valores)
+     - Guarda em MongoDB (com flag outlier=true/false)
+     - Age em tempo real: liga/desliga AC, abre/fecha portas
+     - Republica para PC2 via novos topicos MQTT:
+         pisid_maze_data_temp
+         pisid_maze_data_sound
+         pisid_maze_data_motion
+
+3. Computador 2 recebe os topicos do PC1:
+     - Insere dados normais: Temperatura, Som, MedicoesPassagem
+     - Insere outliers: TemperaturaOutlier, SomOutlier
+     - Gera alertas na tabela Mensagens
+
+4. Player recebe movimentos:
+     - Monitoriza quantos marsamis odd/even estao em cada sala
+     - Quando ha equilibrio (odd == even > 0), fecha corredores
+     - Dispara Score para a cloud (max 3 vezes por sala)
+     - Deteta fim de jogo e termina simulacao
+
+================================================================
+PAPEL DE CADA COMPUTADOR (RESPOSTA DIRETA)
+================================================================
+
+PC1 (computer1.py):
+  - Recebe dados RAW do simulador
+  - Deteta outliers
+  - Guarda no MongoDB
+  - Faz acoes: AcOn, AcOff, OpenAllDoor, CloseAllDoor
+  - Republica dados processados para o PC2
+
+PC2 (computer2.py):
+  - So le dados (ja processados pelo PC1) via MQTT
+  - Insere nas tabelas certas do MySQL local
+  - Gera mensagens de alerta na tabela Mensagens
+  - Publica GameStart quando deteta nova simulacao ativa
+
+================================================================
+DETECAO DE OUTLIERS
+================================================================
+
+ONDE e COMO:
+  O Python (PC1) faz a deteção com este algoritmo:
+  - Guarda os ultimos 5 valores validos em memoria
+  - Para cada novo valor: calcula a media dos 5 anteriores
+  - Se |novo_valor - media| > 5.0, e considerado outlier
+  - Isso e um desvio da media com threshold fixo
+
+NAO e Z-score a sério. Z-score real seria: Z = (x - media) / desvio_padrao
+e consideraria outlier se |Z| > 3.
+
+O SP do MySQL "Verificar_Outlier" IMPLEMENTA o Z-score real
+(usa STD() do SQL), MAS NUNCA E CHAMADO em lado nenhum.
+Existe no codigo como "camada de segurança extra" que ficou por ligar.
+
+CONCLUSAO: outliers sao tratados APENAS no Python. O SP do MySQL
+nao faz nada.
+
+================================================================
+STORED PROCEDURES (SPs) — O QUE FAZEM
+================================================================
+
+Criar_simulacao    - cria simulacao em estado 'pendente'
+Alterar_simulacao  - altera descricao/limites (so enquanto pendente)
+Iniciar_simulacao  - muda estado para 'ativo', cria OcupacaoLabirinto
+Terminar_simulacao - muda estado para 'terminada', regista hora fim
+Reiniciar_migracao - limpa todos os dados e volta a 'pendente'
+Criar_utilizador   - cria utilizador com validacoes
+Remover_utilizador - remove utilizador
+Alterar_utilizador - altera dados do utilizador
+Inserir_Alerta     - insere na tabela Mensagens (criado para trigger, ja nao e usado diretamente)
+Verificar_Outlier  - z-score nos ultimos 5 valores — EXISTE MAS NAO E CHAMADO
+
+================================================================
+TRIGGERS
+================================================================
+
+trg_atualizar_ocupacao:
+  - Dispara apos INSERT em MedicoesPassagem
+  - Atualiza OcupacaoLabirinto (incrementa sala destino, decrementa sala origem)
+  - RoomOrigin=0 significa largada inicial (nao decrementa)
+  - RoomDestiny=0 significa marsami preso (nao incrementa)
+
+Nota: o trigger de outlier de temperatura foi REMOVIDO porque
+o Python ja faz essa separacao diretamente na insercao.
+
+================================================================
+EVENTOS DE SUPORTE SQL (PORQUE NAO FORAM USADOS)
+================================================================
+
+O MySQL tem um "Event Scheduler" que permite agendar queries SQL
+para correrem automaticamente a intervalos (tipo cron job dentro
+do proprio SQL). Exemplo: "corre esta query de hora a hora".
+
+NAO foram usados porque:
+  - Todo o processamento ja e feito pelo Python em tempo real
+  - Os scripts Python correm em threads continuas
+  - Adicionar eventos SQL seria redundante e mais dificil de debugar
+  - A logica e mais clara em Python do que em SQL agendado
+
+================================================================
+BASES DE DADOS
+================================================================
+
+Cloud MySQL (194.210.86.10, base "maze"):
+  - setupmaze: limites de temperatura e som usados pelo Python
+  - corridor: mapa do labirinto (salas e corredores)
+  - roomsscore: pontuacoes por sala e por grupo
+
+MongoDB (local):
+  - Buffer intermedio entre PC1 e PC2
+  - Colecoes: Sound, Temperature, Motion
+  - Campos: migrated (ja foi para MySQL), published (ja foi para MQTT)
+
+MySQL local (base "pisid"):
+  - Simulacao, Utilizador, Equipa
+  - Temperatura, TemperaturaOutlier
+  - Som, SomOutlier
+  - MedicoesPassagem
+  - OcupacaoLabirinto
+  - Mensagens
+
+================================================================
+ROLES DE UTILIZADOR NO MYSQL
+================================================================
+
+Administrador: SELECT, INSERT, UPDATE, DELETE em tudo
+Investigador:  CRUD nas simulacoes e dados dos sensores, so leitura nos utilizadores
+Android:       So SELECT em Simulacao, Mensagens, OcupacaoLabirinto, Sala
+
+================================================================
+LIMITES DE TEMPERATURA — ATENCAO
+================================================================
+
+Existem DOIS conjuntos de limites desconectados:
+
+1. Cloud MySQL (setupmaze):
+   normaltemperature + tolerancias -> usados pelo Python para AC e alertas
+   ESTES sao os que realmente controlam o comportamento
+
+2. MySQL local (Simulacao.limTemperaturaMax/Min):
+   Definidos no dashboard web (nova_simulacao.php / alterar_simulacao.php)
+   Guardados na BD mas NAO usados pelo Python
+   So sao lidos pela app Android para mostrar no ecra
+
+Ou seja: mudar os limites no dashboard web NAO afeta o simulador.
+
+================================================================
+TOPICOS MQTT
+================================================================
+
+Simulador -> PC1:
+  pisid_mazetemp_13     temperatura
+  pisid_mazesound_13    som
+  pisid_mazemov_13      movimento
+
+PC1 -> PC2:
+  pisid_maze_data_temp      temperatura processada
+  pisid_maze_data_sound     som processado
+  pisid_maze_data_motion    movimento processado
+
+Controlo:
+  pisid_game_control_13   GameStart / GameOver
+
+Acoes (PC1 e Player -> Simulador):
+  pisid_mazeact   AcOn, AcOff, OpenAllDoor, CloseAllDoor,
+                  OpenDoor, CloseDoor, Score
+
+================================================================
+SISTEMA DE PONTUACAO (PLAYER)
+================================================================
+
+- Player monitoriza topico pisid_mazmov_13
+- Controla um dicionario rooms_state: {sala: {odd, even, triggers}}
+- Quando odd > 0 E odd == even numa sala -> "sala equilibrada"
+- Fecha os corredores dessa sala
+- Publica Score para a cloud
+- Pode disparar ate 3 gatilhos por sala
+- Apos esgotar gatilhos, reabre os corredores
+- Fim de jogo: todos os marsamis saem (odd=even=0) ou GameOver
+
+================================================================
+WEB DASHBOARD — PAGINAS
+================================================================
+
+login.php            autenticacao
+dashboard.php        lista de simulacoes do utilizador
+nova_simulacao.php   criar simulacao com limites
+alterar_simulacao.php editar simulacao (so pendente)
+iniciar_simulacao.php mudar para 'ativo'
+terminar_simulacao.php mudar para 'terminada'
+reiniciar_simulacao.php limpar tudo e voltar a pendente
+detalhes.php         graficos temperatura/som, alertas, ocupacao
+                     (auto-refresh a cada 5 segundos)
+
+================================================================
+APP ANDROID
+================================================================
+
+- Mostra dados de temperatura e som em tempo real
+- Le limites min/max da tabela Simulacao local
+- Mostra mensagens de alerta
+- Mostra ocupacao das salas
+- Liga a dois MySQL: cloud (maze) e local (pisid)
+
+================================================================

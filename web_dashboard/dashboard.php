@@ -7,12 +7,8 @@ if (!isset($_SESSION['user_email'])) {
 }
 
 /* 2. LIGAÇÃO À BASE DE DADOS */
-$host = 'localhost';
-$user = 'root';
-$pass = ''; 
-$db   = 'pisid';
-
-$conn = new mysqli($host, $user, $pass, $db);
+$_cfg = parse_ini_file(__DIR__ . '/../config.ini', true);
+$conn = new mysqli($_cfg['mysql_local']['host'] ?? 'localhost', $_cfg['mysql_local']['user'] ?? 'root', $_cfg['mysql_local']['password'] ?? '', $_cfg['mysql_local']['database'] ?? 'pisid');
 
 if ($conn->connect_error) {
     die("Erro de ligação: " . $conn->connect_error);

@@ -4,7 +4,8 @@ if (!isset($_SESSION['user_email'])) { header("Location: login.php"); exit(); }
 if (!isset($_GET['id'])) { header("Location: dashboard.php"); exit(); }
 $idSimulacao = intval($_GET['id']);
 
-$conn = new mysqli('localhost', 'root', '', 'pisid');
+$_cfg = parse_ini_file(__DIR__ . '/../config.ini', true);
+$conn = new mysqli($_cfg['mysql_local']['host'] ?? 'localhost', $_cfg['mysql_local']['user'] ?? 'root', $_cfg['mysql_local']['password'] ?? '', $_cfg['mysql_local']['database'] ?? 'pisid');
 if ($conn->connect_error) { die("Erro na ligação: " . $conn->connect_error); }
 
 // Verificar se a simulação pertence ao utilizador

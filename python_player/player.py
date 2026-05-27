@@ -5,24 +5,19 @@ import subprocess
 from datetime import datetime
 import paho.mqtt.client as mqtt
 import mysql.connector
+import sys
+import os
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+import database.mysql_connect as mysql_db
+import database.cloud_mysql_connect as cloud_db
 
 GROUP        = 13
 MQTT_BROKER  = "broker.emqx.io"
 MQTT_PORT    = 1883
 
-CLOUD_DB = {
-    "host":     "194.210.86.10",
-    "user":     "aluno",
-    "password": "aluno",
-    "database": "maze",
-}
-
-LOCAL_DB = {
-    "host":     "localhost",
-    "user":     "root",
-    "password": "",
-    "database": "pisid",
-}
+CLOUD_DB = cloud_db.db_config
+LOCAL_DB = mysql_db.db_config
 
 TOPIC_MOV     = f"pisid_mazemov_{GROUP}"
 TOPIC_CONTROL = f"pisid_game_control_{GROUP}"
